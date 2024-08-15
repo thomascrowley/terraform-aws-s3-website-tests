@@ -5,8 +5,13 @@ run "setup_tests" {
   }
 }
 
+mock_provider "aws" {
+  alias = "mock"
+}
+
 # Apply run block to create the bucket
 run "create_bucket" {
+
   variables {
     bucket_name = "${run.setup_tests.bucket_prefix}-aws-s3-website-test"
   }
@@ -27,5 +32,46 @@ run "create_bucket" {
   assert {
     condition     = aws_s3_object.error.etag == filemd5("./www/error.html")
     error_message = "Invalid eTag for error.html"
+  }
+}
+run "website_is_running" {
+  command = plan
+    providers = {
+    aws = aws.mock
+  }
+
+  module {
+    source = "./tests/final"
+  }
+
+  variables {
+    endpoint = run.create_bucket.website_endpoint
+  }
+
+  assert {
+    condition     = data.http.index.status_code == 200
+    error_message = "Website responded with HTTP status ${data.http.index.status_code}"
+  }
+}
+override_resource {
+  target = aws_instance.backend_api
+}
+
+override_resource {
+  target = aws_db_instance.backend_api
+}
+
+run "check_backend_api" {
+    providers = {
+    aws = aws.mock
+  }
+  assert {
+    condition     = aws_instance.backend_api.tags.Name == "backend"
+    error_message = "Invalid name tag"
+  }
+
+  assert {
+    condition     = aws_db_instance.backend_api.username == "foo"
+    error_message = "Invalid database username"
   }
 }
